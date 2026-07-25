@@ -181,3 +181,5 @@ In addition to the core product improvements, I would also integrate production-
 - LangSmith for tracing prompts, tool calls, and model behavior across runs.
 
 This would make the system easier to debug in production and provide much better visibility into both deterministic workflow issues and LLM-related failures.
+
+Code Quality & Automation: Ruff linting and formatting, along with pre-commit hooks, will be integrated to automatically enforce code quality standards, validate code before commits, and ensure consistent formatting across the codebase.
