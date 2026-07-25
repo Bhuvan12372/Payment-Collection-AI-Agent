@@ -10,6 +10,8 @@ A conversational, deterministic-first CLI agent designed to securely collect and
 - `python-dateutil`
 - A valid Groq API Key
 
+
+
 ## Environment Setup
 Before running the agent, you must set your API key as an environment variable so the LLM fallback can function correctly.
 
@@ -19,12 +21,20 @@ For Linux/macOS:
 For Windows (Command Prompt):
 `set GROQ_API_KEY="your_api_key_here"`
 
+or add in .env.
+
+GROQ_API_KEY=your_api_key_here
+
 For Windows (PowerShell):
 `$env:GROQ_API_KEY="your_api_key_here"`
 
 ## How to Run the Agent
 To start the interactive chat session, run the following command in your terminal from the root directory of the project:
 `python -m cli`
+
+## How to the run the evaluation metrics
+
+`python -m evaluation` # full suite or `python -m evaluation --quick`  # smoke only
 
 ## Using the Agent
 1. **Initiation**: The agent will prompt you for your Account ID. (e.g., `ACC1001`)

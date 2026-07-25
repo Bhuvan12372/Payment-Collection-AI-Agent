@@ -25,7 +25,7 @@ How "correct" is defined for each step
 
 Run
 ---
-    python -m eval.evaluate          
+    python -m evaluation         
     python -m evaluation --quick  # smoke only
 """
 
