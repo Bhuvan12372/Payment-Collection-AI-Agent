@@ -13,13 +13,6 @@ from pathlib import Path
 from typing import Optional
 from pydantic import BaseModel, Field
 from tenacity import Retrying, stop_after_attempt, wait_exponential, retry_if_exception_type
-# Using LangChain to remain provider-agnostic
-try:
-    from langchain.chat_models import init_chat_model
-    from langchain_core.messages import SystemMessage, HumanMessage
-except ImportError:
-    # If langchain is missing, fail gracefully or inform the user
-    pass
 
 
 def load_env_file() -> None:
