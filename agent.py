@@ -49,8 +49,9 @@ class Agent:
                 Stage.AWAITING_ACCOUNT_ID: self._handle_account_id,
                 Stage.AWAITING_NAME: self._handle_name,
                 Stage.AWAITING_SECONDARY_FACTOR: self._handle_secondary_factor,
-                Stage.AWAITING_AMOUNT: self._handle_amount,
+                    Stage.AWAITING_AMOUNT: self._handle_amount,
                 Stage.AWAITING_CARD_DETAILS: self._handle_card_details,
+                Stage.AWAITING_PAYMENT_CONFIRMATION: self._handle_payment_confirmation,
             }[self.state.stage]
             message = handler(user_input or "")
         except Exception:
@@ -274,7 +275,13 @@ class Agent:
         if not self.state.cardholder_name:
             self.state.cardholder_name = self.state.name_input
 
-        return self._process_payment()
+        self._change_step(Stage.AWAITING_PAYMENT_CONFIRMATION)
+        masked_last4 = self.state.card_number[-4:] if self.state.card_number else "****"
+        expiry = f"{self.state.card_expiry_month:02d}/{self.state.card_expiry_year}"
+        return (
+            f"I have ₹{self.state.amount_to_pay:.2f} ready to charge to card ending {masked_last4}, "
+            f"expiry {expiry}. Please reply 'yes' to confirm the payment or 'no' to update your card details."
+        )
 
     def _process_payment(self) -> str:
         try:
@@ -304,6 +311,91 @@ class Agent:
             return self.state.close_reason
 
         return self._handle_payment_error(ToolError("unexpected_response", "Payment failed without throwing."))
+
+    def _handle_payment_confirmation(self, user_input: str) -> str:
+        fields = extraction.extract(user_input, "AWAITING_PAYMENT_CONFIRMATION")
+        
+        # If user explicitly confirmed and didn't provide any fields to change
+        if fields.payment_confirmation is True and not any([fields.amount, fields.wants_full_balance, fields.card_number, fields.card_expiry_month, fields.cvv, fields.cardholder_name]):
+            return self._process_payment()
+            
+        updates_made = False
+        invalid_notes = []
+
+        if fields.wants_full_balance:
+            self.state.amount_to_pay = float(self.state.balance)
+            updates_made = True
+        elif fields.amount is not None:
+            try:
+                validated_amount = AmountValidator(amount=Decimal(str(fields.amount))).amount
+                if validated_amount > Decimal(str(self.state.balance)):
+                    invalid_notes.append(f"The amount ₹{validated_amount} is more than your outstanding balance of ₹{self.state.balance:.2f}.")
+                else:
+                    self.state.amount_to_pay = float(validated_amount)
+                    updates_made = True
+            except ValidationError:
+                invalid_notes.append("The provided amount is invalid.")
+
+        if fields.card_number:
+            try:
+                self.state.card_number = CardNumberValidator(card_number=fields.card_number).card_number
+                updates_made = True
+            except ValidationError:
+                invalid_notes.append("The provided card number is invalid.")
+
+        if fields.card_expiry_month and fields.card_expiry_year:
+            try:
+                validated = ExpiryValidator(expiry_month=fields.card_expiry_month, expiry_year=fields.card_expiry_year)
+                self.state.card_expiry_month = validated.expiry_month
+                self.state.card_expiry_year = validated.expiry_year
+                updates_made = True
+            except ValidationError:
+                invalid_notes.append("The provided expiry date is invalid or expired.")
+
+        if fields.cvv:
+            try:
+                self.state.cvv = CVVValidator(cvv=fields.cvv).cvv
+                updates_made = True
+            except ValidationError:
+                invalid_notes.append("The provided CVV is invalid.")
+
+        if fields.cardholder_name:
+            try:
+                self.state.cardholder_name = NameValidator(name=fields.cardholder_name).name
+                updates_made = True
+            except ValidationError:
+                invalid_notes.append("The provided cardholder name is invalid.")
+
+        if invalid_notes:
+            return " ".join(invalid_notes) + " Please provide the correct details or reply 'yes' to proceed with the current details."
+
+        if updates_made:
+            # Check if any details are now missing due to a state reset or partial update.
+            # In a real scenario, updating the card number might require asking for CVV again.
+            # For simplicity, if we have all details, reprompt the recap.
+            missing = []
+            if not self.state.card_number: missing.append("card number")
+            if self.state.card_expiry_month is None: missing.append("expiry")
+            if not self.state.cvv: missing.append("CVV")
+            if self.state.amount_to_pay is None: missing.append("amount to pay")
+            
+            if missing:
+                self._change_step(Stage.AWAITING_CARD_DETAILS)
+                return f"I updated those details, but I still need your {', '.join(missing)}."
+            
+            masked_last4 = self.state.card_number[-4:] if self.state.card_number else "****"
+            expiry = f"{self.state.card_expiry_month:02d}/{self.state.card_expiry_year}"
+            return (
+                f"Got it, I've updated your details. I have ₹{self.state.amount_to_pay:.2f} ready to charge to card ending {masked_last4}, "
+                f"expiry {expiry}. Please reply 'yes' to confirm or tell me if you need to change anything else."
+            )
+            
+        if fields.payment_confirmation is False:
+            return "What would you like to update? You can tell me a new amount, card number, expiry, CVV, or cardholder name."
+
+        return (
+            "Please reply 'yes' to confirm the payment or tell me what you want to change."
+        )
 
     def _handle_payment_error(self, err: ToolError) -> str:
         msg, retryable = error_messages.message_for_error(err)

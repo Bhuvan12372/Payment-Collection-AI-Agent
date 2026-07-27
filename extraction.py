@@ -222,6 +222,42 @@ def extract(text: str, currently_awaiting: str = "unknown") -> ExtractedFields:
         if name:
             fields.full_name = name
         return fields
+    elif currently_awaiting == "AWAITING_PAYMENT_CONFIRMATION":
+        fields = ExtractedFields()
+        llm_out = default_client.extract_payment_confirmation(text)
+        
+        if llm_out.get("payment_confirmation") is not None:
+            fields.payment_confirmation = llm_out["payment_confirmation"]
+            
+        if llm_out.get("wants_full_balance"):
+            fields.wants_full_balance = True
+        elif llm_out.get("amount") is not None:
+            fields.amount = llm_out["amount"]
+            
+        if llm_out.get("cvv"):
+            cvv = re.sub(r"\D", "", str(llm_out["cvv"]))
+            if len(cvv) in (3, 4):
+                fields.cvv = cvv
+                
+        if llm_out.get("cardholder_name"):
+            fields.cardholder_name = llm_out["cardholder_name"].strip()
+            
+        if llm_out.get("card_number"):
+            cleaned = re.sub(r"\D", "", str(llm_out["card_number"]))
+            if 12 <= len(cleaned) <= 19:
+                fields.card_number = cleaned
+                
+        if llm_out.get("card_expiry"):
+            expiry = str(llm_out["card_expiry"])
+            m = re.search(r"(\d{1,2})\D+(\d{2,4})", expiry)
+            if m:
+                month, year = int(m.group(1)), int(m.group(2))
+                if year < 100:
+                    year += 2000
+                fields.card_expiry_month = month
+                fields.card_expiry_year = year
+
+        return fields
     else:
         fields = extract_deterministic(text)
 
@@ -252,6 +288,16 @@ def extract(text: str, currently_awaiting: str = "unknown") -> ExtractedFields:
 
     if not fields.dob and llm_out.get("dob"):
         fields.dob = llm_out["dob"]
+
+    if not fields.aadhaar_last4 and llm_out.get("aadhaar_last4"):
+        aadhaar = re.sub(r"\D", "", str(llm_out["aadhaar_last4"]))
+        if len(aadhaar) == 4:
+            fields.aadhaar_last4 = aadhaar
+
+    if not fields.pincode and llm_out.get("pincode"):
+        pincode = re.sub(r"\D", "", str(llm_out["pincode"]))
+        if len(pincode) == 6:
+            fields.pincode = pincode
 
     if llm_out.get("wants_full_balance"):
         fields.wants_full_balance = True

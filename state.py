@@ -32,6 +32,7 @@ class Stage(str, Enum):
     AWAITING_SECONDARY_FACTOR = "AWAITING_SECONDARY_FACTOR"
     AWAITING_AMOUNT = "AWAITING_AMOUNT"
     AWAITING_CARD_DETAILS = "AWAITING_CARD_DETAILS"
+    AWAITING_PAYMENT_CONFIRMATION = "AWAITING_PAYMENT_CONFIRMATION"
     RECAP_DONE = "RECAP_DONE"
     TERMINATED_ACCOUNT_NOT_FOUND = "TERMINATED_ACCOUNT_NOT_FOUND"
     TERMINATED_VERIFICATION_FAILED = "TERMINATED_VERIFICATION_FAILED"
@@ -53,6 +54,7 @@ class ExtractedFields:
     card_expiry_year: Optional[int] = None
     cvv: Optional[str] = None
     cardholder_name: Optional[str] = None
+    payment_confirmation: Optional[bool] = None
 
 
 @dataclass

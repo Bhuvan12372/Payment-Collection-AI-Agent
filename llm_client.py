@@ -60,6 +60,12 @@ class ExtractionSchema(BaseModel):
     wants_full_balance: Optional[bool] = Field(
         None, description="True if the user wants to pay their entire outstanding balance rather than a specific number."
     )
+    aadhaar_last4: Optional[str] = Field(
+        None, description="The last 4 digits of Aadhaar, only if explicitly present in the user's message."
+    )
+    pincode: Optional[str] = Field(
+        None, description="The 6-digit pincode, only if explicitly present in the user's message."
+    )
     cvv: Optional[str] = Field(
         None, description="3-4 digit CVV, converting any spelled-out digits (e.g. 'one two three') to numerals."
     )
@@ -72,6 +78,21 @@ class ExtractionSchema(BaseModel):
     card_expiry: Optional[str] = Field(
         None, description="The card expiry in MM/YYYY format."
     )
+
+
+class PaymentConfirmationSchema(BaseModel):
+    """
+    Schema for extracting intent at the payment confirmation stage.
+    """
+    payment_confirmation: Optional[bool] = Field(
+        None, description="True if the user explicitly confirms the payment (e.g. 'yes', 'confirm', 'go ahead', 'proceed'). False if they say 'no' or explicitly state they want to change/update details."
+    )
+    amount: Optional[float] = Field(None, description="The new payment amount if the user wants to change it (e.g., 'change amount to 500').")
+    wants_full_balance: Optional[bool] = Field(None, description="True if the user says they want to pay their full balance.")
+    card_number: Optional[str] = Field(None, description="The new 16 digit card number if explicitly provided.")
+    card_expiry: Optional[str] = Field(None, description="The new card expiry in MM/YYYY format.")
+    cvv: Optional[str] = Field(None, description="The new 3-4 digit CVV.")
+    cardholder_name: Optional[str] = Field(None, description="The new cardholder name if provided.")
 
 
 class LLMClient:
@@ -146,7 +167,9 @@ class LLMClient:
             "- 'CVV is one two three' -> cvv: '123'\n"
             "- 'just clear the full amount' -> wants_full_balance: true, amount: null\n"
             "- 'can I do 500 for now?' -> amount: 500\n"
-            "- 'I was born on 14th May 1990' -> dob: '1990-05-14'"
+            "- 'I was born on 14th May 1990' -> dob: '1990-05-14'\n"
+            "- 'my aadhaar last digits are 4321' -> aadhaar_last4: '4321'\n"
+            "- 'pincode is 400001' -> pincode: '400001'"
         )
 
         # Build dynamic context for the HumanMessage so the SystemMessage remains static for caching
@@ -170,6 +193,8 @@ class LLMClient:
             dynamic_context += (
                 "Target Fields:\n"
                 "- dob: Date of birth normalized to YYYY-MM-DD, only if dateutil parsing would clearly fail on raw phrasing.\n"
+                "- aadhaar_last4: Last 4 digits of Aadhaar if the user provides them.\n"
+                "- pincode: 6-digit pincode if the user provides it.\n"
             )
 
         human_content = f"{dynamic_context}\nUser: {text}"
@@ -190,6 +215,48 @@ class LLMClient:
                     return result.model_dump(exclude_none=True) if hasattr(result, 'model_dump') else result.dict(exclude_none=True)
         except Exception as e:
             print(f"\n[LLM Extraction Error after retries: {e}]\n")
+            return {}
+
+    def extract_payment_confirmation(self, text: str) -> dict:
+        if not self.api_key:
+            print("\n[Error: GROQ_API_KEY is not set in environment]\n")
+            return {}
+            
+        try:
+            from langchain.chat_models import init_chat_model
+            from langchain_core.messages import SystemMessage, HumanMessage
+        except ImportError:
+            return {}
+            
+        system_prompt = (
+            "You are parsing the user's response to a payment confirmation prompt.\n"
+            "The user was asked: 'Please reply yes to confirm the payment or no to update your card details.'\n\n"
+            "Extract whether they confirmed (payment_confirmation=true) or declined/wanted changes (payment_confirmation=false).\n"
+            "ALSO extract any new field values they provided in the same message.\n\n"
+            "Examples:\n"
+            "- 'yes' -> payment_confirmation: true\n"
+            "- 'no' -> payment_confirmation: false\n"
+            "- 'no, actually change the amount to 500' -> payment_confirmation: false, amount: 500\n"
+            "- 'use card 4532 0151 1283 0366 instead' -> payment_confirmation: false, card_number: '4532015112830366'\n"
+            "- 'change amount to full balance' -> payment_confirmation: false, wants_full_balance: true"
+        )
+
+        try:
+            for attempt in Retrying(
+                stop=stop_after_attempt(3),
+                wait=wait_exponential(multiplier=1, min=2, max=10),
+                retry=retry_if_exception_type(Exception)
+            ):
+                with attempt:
+                    llm = init_chat_model(self.model_name, model_provider="groq", temperature=0, api_key=self.api_key)
+                    extractor = llm.with_structured_output(PaymentConfirmationSchema)
+                    result = extractor.invoke([
+                        SystemMessage(content=system_prompt),
+                        HumanMessage(content=text)
+                    ])
+                    return result.model_dump(exclude_none=True) if hasattr(result, 'model_dump') else result.dict(exclude_none=True)
+        except Exception as e:
+            print(f"\n[LLM Payment Confirmation Error after retries: {e}]\n")
             return {}
 
 default_client = LLMClient()
