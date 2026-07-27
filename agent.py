@@ -17,9 +17,6 @@ instead of raising to the caller or looping forever.
 
 from decimal import Decimal, InvalidOperation
 from pydantic import ValidationError
-import json
-import logging
-import sys
 from typing import Optional
 
 from state import Stage, ConversationState
@@ -115,12 +112,30 @@ class Agent:
         return "To verify your identity, could you please share your full name?"
 
     def _check_secondary_factor(self, fields) -> Optional[str]:
-        if fields.dob and fields.dob == self.state.dob:
-            return f"Date of birth ({fields.dob})"
-        if fields.aadhaar_last4 and fields.aadhaar_last4 == self.state.aadhaar_last4:
-            return f"Aadhaar last 4 digits ({fields.aadhaar_last4})"
-        if fields.pincode and fields.pincode == self.state.pincode:
-            return f"Pincode ({fields.pincode})"
+        if fields.dob:
+            try:
+                validated_dob = DOBValidator(dob=fields.dob).dob
+                if validated_dob == self.state.dob:
+                    return f"Date of birth ({validated_dob})"
+            except ValidationError:
+                pass
+                
+        if fields.aadhaar_last4:
+            try:
+                validated_aadhaar = AadhaarValidator(aadhaar_last4=fields.aadhaar_last4).aadhaar_last4
+                if validated_aadhaar == self.state.aadhaar_last4:
+                    return f"Aadhaar last 4 digits ({validated_aadhaar})"
+            except ValidationError:
+                pass
+                
+        if fields.pincode:
+            try:
+                validated_pincode = PincodeValidator(pincode=fields.pincode).pincode
+                if validated_pincode == self.state.pincode:
+                    return f"Pincode ({validated_pincode})"
+            except ValidationError:
+                pass
+                
         return None
 
     def _handle_name(self, user_input: str) -> str:
